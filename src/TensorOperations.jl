@@ -1,6 +1,6 @@
 module TensorOperations
 
-using Compat  # for sizehint!
+# using Compat  # for sizehint!
 
 export LabelError
 export tensorcopy, tensoradd, tensortrace, tensorcontract, tensorproduct, scalar, reset_tcbuffer
@@ -15,33 +15,28 @@ type LabelError <: Exception
 end
 
 # Constants that define base case in recursive algorithms
-#---------------------------------------------------------
-# for tensorcopy, tensoradd and tensortrace
-const TBASELENGTH=512
-# note: total number elements involved = 2*512 = 1024
+# ---------------------------------------------------------
+const BASELENGTH=1024
+# total number of elements involved in the base algorithms acting on the individual blocks
 
-# for tensorcontract
-const OBASELENGTH=16 # total size of all open dimensions in one of the two contraction partners
-const CBASELENGTH=24 # total size of all contraction dimensions
-# note: total number elements involved = 16*24*2+16*16 = 1024
+# Scalar
+#--------
+scalar(C::StridedArray) = length(C)==1 ? C[1] : throw(DimensionMismatch())
 
 # Tensor Operations
 #-------------------
-using Cartesian
-
-include("kernels.jl")
-include("tensorcopy.jl")
+include("aux.jl")
 include("tensoradd.jl")
 include("tensortrace.jl")
 include("tensorcontract.jl")
 include("tensorproduct.jl")
 
-# Scalar
-#--------
-scalar(C::StridedArray)=length(C)==1 ? C[1] : throw(DimensionMismatch())
+# Index notation
+#----------------
+# include("indexnotation.jl")
 
 end # module
 
 # Index Notation
 #----------------
-include("indexnotation.jl")
+# include("indexnotation.jl")

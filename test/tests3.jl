@@ -22,7 +22,7 @@ A=randn(50,100,100)
 C1=tensortrace(A,[:a,:b,:b])
 C2=zeros(50)
 for i=1:50
-    for j=1:100
+    for j=1:50
         C2[i]+=A[i,j,j]
     end
 end
@@ -42,7 +42,12 @@ A=randn(3,20,5,3,4)
 B=randn(5,6,20,3)
 C1=tensorcontract(A,[:a,:b,:c,:d,:e],B,[:c,:f,:b,:g],[:a,:g,:e,:d,:f];method=:BLAS)
 C2=tensorcontract(A,[:a,:b,:c,:d,:e],B,[:c,:f,:b,:g],[:a,:g,:e,:d,:f];method=:native)
-@test vecnorm(C1-C2)<eps()*sqrt(length(C1))*vecnorm(C1+C2)
+C3=zeros(3,3,4,3,6)
+for a=1:3, b=1:20, c=1:5, d=1:3, e=1:4, f=1:6, g=1:3
+    C3[a,g,e,d,f] += A[a,b,c,d,e]*B[c,f,b,g]
+end
+@test vecnorm(C1-C3)<eps()*sqrt(length(C1))*vecnorm(C1+C3)
+@test vecnorm(C2-C3)<eps()*sqrt(length(C1))*vecnorm(C2+C3)
 @test_throws LabelError tensorcontract(A,[:a,:b,:c,:d],B,[:c,:f,:b,:g])
 @test_throws LabelError tensorcontract(A,[:a,:b,:c,:a,:e],B,[:c,:f,:b,:g])
 
@@ -57,23 +62,23 @@ C2=kron(reshape(B,(25,25)),reshape(A,(25,25)))
 
 # test index notation
 #---------------------
-Da=10
-Db=15
-Dc=4
-Dd=8
-De=6
-Df=7
-Dg=3
-Dh=2
-A=rand(Complex128,(Da,Dc,Df,Da,De,Db,Db,Dg))
-B=rand(Complex128,(Dc,Dh,Dg,De,Dd))
-C=rand(Complex128,(Dd,Dh,Df))
-D=rand(Complex128,(Dd,Df,Dh))
-D[l"d,f,h"]=A[l"a,c,f,a,e,b,b,g"]*B[l"c,h,g,e,d"]+0.5*C[l"d,h,f"]
-@test_approx_eq(vecnorm(D),sqrt(abs(scalar(D[l"d,f,h"]*conj(D[l"d,f,h"])))))
-@test_throws LabelError D[l"a,a,a"]
-@test_throws LabelError D[l"a,b,c,d"]
-@test_throws LabelError D[l"a,b"]
+# Da=10
+# Db=15
+# Dc=4
+# Dd=8
+# De=6
+# Df=7
+# Dg=3
+# Dh=2
+# A=rand(Complex128,(Da,Dc,Df,Da,De,Db,Db,Dg))
+# B=rand(Complex128,(Dc,Dh,Dg,De,Dd))
+# C=rand(Complex128,(Dd,Dh,Df))
+# D=rand(Complex128,(Dd,Df,Dh))
+# D[l"d,f,h"]=A[l"a,c,f,a,e,b,b,g"]*B[l"c,h,g,e,d"]+0.5*C[l"d,h,f"]
+# @test_approx_eq(vecnorm(D),sqrt(abs(scalar(D[l"d,f,h"]*conj(D[l"d,f,h"])))))
+# @test_throws LabelError D[l"a,a,a"]
+# @test_throws LabelError D[l"a,b,c,d"]
+# @test_throws LabelError D[l"a,b"]
 
 # test in-place methods
 #-----------------------

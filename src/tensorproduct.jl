@@ -11,7 +11,7 @@ function tensorproduct(A::StridedArray,labelsA,B::StridedArray,labelsB,outputlab
     dimsC=dimsC[indexin(outputlabels,vcat(labelsA,labelsB))]
     T=promote_type(eltype(A),eltype(B))
     C=similar(A,T,dimsC)
-    tensorproduct!(one(T),A,labelsA,B,labelsB,zero(T),C,outputlabels)
+    tensorproduct!(1,A,labelsA,B,labelsB,0,C,outputlabels)
 end
 
 # In-place method
