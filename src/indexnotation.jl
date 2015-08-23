@@ -100,12 +100,12 @@ function parsearray(ex)
 # Base.eltype{T}(::Type{LabeledArray{T}})=T
 # Base.eltype{T,N}(::Type{LabeledArray{T,N}})=T
 #
-# Base.getindex(A::Array,l::LabelList)=LabeledArray(A,l.labels)
-# Base.getindex(A::SubArray,l::LabelList)=LabeledArray(A,l.labels)
-# # if VERSION.minor >= 3
-# #     Base.getindex(A::SharedArray,l::LabelList)=LabeledArray(A,l.labels)
-# # end
-# Base.getindex(A::LabeledArray,l::LabelList)=LabeledArray(A.data,l.labels)
+Base.getindex(A::Array,l::LabelList)=LabeledArray(A,l.labels)
+Base.getindex(A::SubArray,l::LabelList)=LabeledArray(A,l.labels)
+# if VERSION.minor >= 3
+#     Base.getindex(A::SharedArray,l::LabelList)=LabeledArray(A,l.labels)
+# end
+Base.getindex(A::LabeledArray,l::LabelList)=LabeledArray(A.data,l.labels)
 #
 # Base.setindex!(A::Array,B::LabeledArray,l::LabelList)=TensorOperations.tensorcopy!(B.data,B.labels,A,l.labels)
 # Base.setindex!(A::SubArray,B::LabeledArray,l::LabelList)=TensorOperations.tensorcopy!(B.data,B.labels,A,l.labels)

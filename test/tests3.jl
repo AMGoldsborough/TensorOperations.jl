@@ -22,7 +22,7 @@ A=randn(50,100,100)
 C1=tensortrace(A,[:a,:b,:b])
 C2=zeros(50)
 for i=1:50
-    for j=1:50
+    for j=1:100
         C2[i]+=A[i,j,j]
     end
 end
@@ -121,8 +121,8 @@ Bbig=rand(Complex128,(50,50))
 B=sub(Bbig,13+(0:14),3+5*(0:6))
 Acopy=tensorcopy(A,1:4)
 Bcopy=tensorcopy(B,1:2)
-alpha=randn()
-beta=randn()
+alpha=rand()
+beta=rand()
 TensorOperations.tensortrace!(alpha,A,[:a,:b,:c,:a],beta,B,[:b,:c])
 Bcopy=beta*Bcopy
 for i=1+(0:8)

@@ -1,4 +1,4 @@
-# tensorcopy.jl
+# tensortrace.jl
 #
 # Method for tracing some of the indices of a tensor and
 # adding the result to another tensor.
@@ -51,50 +51,60 @@ function tensortrace!(alpha::Number,A::StridedArray,labelsA,beta::Number,C::Stri
         size(A,cindA1[i]) == size(A,cindA2[i]) || throw(DimensionMismatch("tensor sizes incompatible"))
     end
 
-    startA, Alinear = _arrayoffset(A)
-    startC, Clinear = _arrayoffset(C)
-
     dims, stridesA, stridesC, minstrides = _tracestrides(_permute(size(A),pA), _permute(_strides(A),pA), _strides(C))
+    dataA = StridedData(A,stridesA)
+    offsetA = 0
+    dataC = StridedData(C,stridesC)
+    offsetC = 0
 
     if alpha == 0
         beta == 1 || scale!(C,beta)
     elseif alpha == 1 && beta == 0
-        tensortrace_rec!(_one, Alinear, _zero, Clinear, dims, startA, startC, stridesA, stridesC, minstrides)
+        trace_rec!(_one, dataA, _zero, dataC, dims, offsetA, offsetC, minstrides)
     elseif alpha == 1 && beta == 1
-        tensortrace_rec!(_one, Alinear, _one, Clinear, dims, startA, startC, stridesA, stridesC, minstrides)
+        trace_rec!(_one, dataA, _one, dataC, dims, offsetA, offsetC, minstrides)
     elseif beta == 0
-        tensortrace_rec!(alpha, Alinear, _zero, Clinear, dims, startA, startC, stridesA, stridesC, minstrides)
+        trace_rec!(alpha, dataA, _zero, dataC, dims, offsetA, offsetC, minstrides)
     elseif beta == 1
-        tensortrace_rec!(alpha, Alinear, _one, Clinear, dims, startA, startC, stridesA, stridesC, minstrides)
+        trace_rec!(alpha, dataA, _one, dataC, dims, offsetA, offsetC, minstrides)
     else
-        tensortrace_rec!(alpha, Alinear, beta, Clinear, dims, startA, startC, stridesA, stridesC, minstrides)
+        trace_rec!(alpha, dataA, beta, dataC, dims, offsetA, offsetC, minstrides)
     end
     return C
 end
 
 # Recursive implementation
 #--------------------------
-@generated function tensortrace_rec!{N}(alpha, A::Array, beta, C::Array, dims::NTuple{N, Int}, startA::Int, startC::Int, stridesA::NTuple{N, Int}, stridesC::NTuple{N, Int}, minstrides::NTuple{N, Int})
+@generated function trace_rec!{N}(alpha, A::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA::Int, offsetC::Int, minstrides::NTuple{N, Int})
     quote
-        @show dims, startA, startC, stridesA, stridesC
-        @show alpha, beta
-        @show _size(dims,stridesA)+_size(dims,stridesC) 
-        if _size(dims,stridesA)+_size(dims,stridesC) <= 2*BASELENGTH
-            tensoradd_micro!(alpha, A, beta, C, dims, startA, startC, stridesA, stridesC)
+        if prod(dims) + prod(_filterdims(dims,C)) <= 2*BASELENGTH
+            trace_micro!(alpha, A, beta, C, dims, offsetA, offsetC)
         else
             dmax = _indmax(_memjumps(dims, minstrides))
-            if stridesC[dmax] == 0
-                @dividebody2 $N dmax dims startA stridesA startC stridesC begin
-                    tensortrace_rec!(alpha, A, beta, C, dims, startA, startC, stridesA, stridesC, minstrides)
-                end begin
-                    tensortrace_rec!(alpha, A, _one, C, dims, startA, startC, stridesA, stridesC, minstrides)
-                end
-            else
-                @dividebody $N dmax dims startA stridesA startC stridesC begin
-                    tensortrace_rec!(alpha, A, beta, C, dims, startA, startC, stridesA, stridesC, minstrides)
+            @dividebody $N dmax dims offsetA A offsetC C begin
+                trace_rec!(alpha, A, beta, C, dims, offsetA, offsetC, minstrides)
+            end begin
+                if C.strides[dmax] == 0
+                    trace_rec!(alpha, A, _one, C, dims, offsetA, offsetC, minstrides)
+                else
+                    trace_rec!(alpha, A, beta, C, dims, offsetA, offsetC, minstrides)
                 end
             end
         end
+        return C
+    end
+end
+
+# Micro kernel at end of recursion
+#----------------------------------
+@generated function trace_micro!{N}(alpha, A::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA::Int, offsetC::Int)
+    quote
+        _scale!(C, beta, dims, offsetC)
+        startA = A.start+offsetA
+        stridesA = A.strides
+        startC = C.start+offsetC
+        stridesC = C.strides
+        @stridedloops($N, dims, indA, startA, stridesA, indC, startC, stridesC, @inbounds C[indC]=axpby(alpha,A[indA],_one,C[indC]))
         return C
     end
 end
@@ -103,13 +113,11 @@ end
 #--------------------
 @generated function _tracestrides{NA,NC}(dims::NTuple{NA,Int}, stridesA::NTuple{NA,Int}, stridesC::NTuple{NC,Int})
     M = div(NA-NC,2)
-    meta = Expr(:meta,:inline)
     dimsex = Expr(:tuple,[:(dims[$d]) for d=1:(NC+M)]...)
     stridesAex = Expr(:tuple,[:(stridesA[$d]) for d = 1:NC]...,[:(stridesA[$(NC+d)]+stridesA[$(NC+M+d)]) for d = 1:M]...)
     stridesCex = Expr(:tuple,[:(stridesC[$d]) for d = 1:NC]...,[0 for d = 1:M]...)
     minstridesex = Expr(:tuple,[:(min(stridesA[$d],stridesC[$d])) for d = 1:NC]...,[:(stridesA[$(NC+d)]+stridesA[$(NC+M+d)]) for d = 1:M]...)
     quote
-        $meta
         minstrides = $minstridesex
         p = sortperm(collect(minstrides))
         newdims = _permute($dimsex, p)

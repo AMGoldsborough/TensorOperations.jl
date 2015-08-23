@@ -1,9 +1,7 @@
 module TensorOperations
 
-# using Compat  # for sizehint!
-
-export LabelError
-export tensorcopy, tensoradd, tensortrace, tensorcontract, tensorproduct, scalar, reset_tcbuffer
+export tensorcopy, tensoradd, tensortrace, tensorcontract, tensorproduct, scalar
+export tensorcopy!, tensoradd!, tensortrace!, tensorcontract!, tensorproduct!
 
 # LabelError
 #------------
@@ -26,10 +24,10 @@ scalar(C::StridedArray) = length(C)==1 ? C[1] : throw(DimensionMismatch())
 # Tensor Operations
 #-------------------
 include("aux.jl")
+include("strideddata.jl")
 include("tensoradd.jl")
 include("tensortrace.jl")
 include("tensorcontract.jl")
-include("tensorproduct.jl")
 
 # Index notation
 #----------------
