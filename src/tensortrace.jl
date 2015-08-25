@@ -5,12 +5,12 @@
 
 # Simple method
 #---------------
-function tensortrace(A::StridedArray,labelsA,outputlabels)
-    dimsA=size(A)
-    C=similar(A,dimsA[indexin(outputlabels,labelsA)])
+function tensortrace(A, labelsA, outputlabels)
+    C = similar_from_indices(eltype(A), outputlabels, labelsA, A)
     tensortrace!(1,A,labelsA,0,C,outputlabels)
 end
-function tensortrace(A::StridedArray,labelsA) # there is no one-line method to compute the default outputlabels
+
+function tensortrace(A, labelsA) # there is no one-line method to compute the default outputlabels
     ulabelsA=unique(labelsA)
     labelsC=similar(labelsA,0)
     sizehint!(labelsC,length(ulabelsA))
@@ -25,32 +25,43 @@ end
 
 # In-place method
 #-----------------
-function tensortrace!(alpha::Number,A::StridedArray,labelsA,beta::Number,C::StridedArray,labelsC)
+function tensortrace!(alpha, A, labelsA, beta, C, labelsC)
     NA=ndims(A)
     NC=ndims(C)
-    (length(labelsA)==NA && length(labelsC)==NC) || throw(LabelError("invalid label specification"))
-    NA==NC && return tensoradd!(alpha,A,labelsA,beta,C,labelsC) # nothing to trace
+    length(labelsA)==NA || throw(LabelError("invalid label length: $labelsA"))
+    length(labelsC)==NC || throw(LabelError("invalid label length: $labelsC"))
 
-    oindA=indexin(labelsC,labelsA)
+    indCinA=indexin(labelsC,labelsA)
+
     clabels=unique(setdiff(labelsA,labelsC))
-    NA==NC+2*length(clabels) || throw(LabelError("invalid label specification"))
-
     cindA1=Array(Int,length(clabels))
     cindA2=Array(Int,length(clabels))
     for i=1:length(clabels)
-        cindA1[i]=findfirst(labelsA,clabels[i])
-        cindA2[i]=findnext(labelsA,clabels[i],cindA1[i]+1)
+        cindA1[i] = findfirst(labelsA,clabels[i])
+        cindA2[i] = findnext(labelsA,clabels[i],cindA1[i]+1)
     end
-    pA = vcat(oindA, cindA1, cindA2)
-    isperm(pA) || throw(LabelError("invalid label specification"))
+    pA = vcat(indCinA, cindA1, cindA2)
+    isperm(pA) || throw(LabelError("invalid trace specification: $labelsA"))
+
+    trace_native!(alpha, A, beta, C, indCinA, cindA1, cindA2)
+    return C
+end
+
+# Implementation methods
+#------------------------
+# High level: can be extended for other types of arrays or tensors
+function trace_native!(alpha, A::StridedArray, beta, C::StridedArray, indCinA, cindA1, cindA2)
+    NC = ndims(C)
+    NA = ndims(A)
 
     for i = 1:NC
-        size(A,oindA[i]) == size(C,i) || throw(DimensionMismatch("tensor sizes incompatible"))
+        size(A,indCinA[i]) == size(C,i) || throw(DimensionMismatch(""))
     end
     for i = 1:div(NA-NC,2)
-        size(A,cindA1[i]) == size(A,cindA2[i]) || throw(DimensionMismatch("tensor sizes incompatible"))
+        size(A,cindA1[i]) == size(A,cindA2[i]) || throw(DimensionMismatch(""))
     end
 
+    pA = vcat(indCinA, cindA1, cindA2)
     dims, stridesA, stridesC, minstrides = _tracestrides(_permute(size(A),pA), _permute(_strides(A),pA), _strides(C))
     dataA = StridedData(A,stridesA)
     offsetA = 0
@@ -58,7 +69,7 @@ function tensortrace!(alpha::Number,A::StridedArray,labelsA,beta::Number,C::Stri
     offsetC = 0
 
     if alpha == 0
-        beta == 1 || scale!(C,beta)
+        beta == 1 || _scale!(dataC, beta, dims)
     elseif alpha == 1 && beta == 0
         trace_rec!(_one, dataA, _zero, dataC, dims, offsetA, offsetC, minstrides)
     elseif alpha == 1 && beta == 1
@@ -73,8 +84,7 @@ function tensortrace!(alpha::Number,A::StridedArray,labelsA,beta::Number,C::Stri
     return C
 end
 
-# Recursive implementation
-#--------------------------
+# Recursive divide and conquer approach:
 @generated function trace_rec!{N}(alpha, A::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA::Int, offsetC::Int, minstrides::NTuple{N, Int})
     quote
         if prod(dims) + prod(_filterdims(dims,C)) <= 2*BASELENGTH
@@ -96,7 +106,6 @@ end
 end
 
 # Micro kernel at end of recursion
-#----------------------------------
 @generated function trace_micro!{N}(alpha, A::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA::Int, offsetC::Int)
     quote
         _scale!(C, beta, dims, offsetC)

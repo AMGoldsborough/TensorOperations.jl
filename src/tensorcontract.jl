@@ -7,30 +7,22 @@
 
 # Simple method
 #---------------
-function tensorcontract(A::StridedArray,labelsA,B::StridedArray,labelsB,outputlabels = symdiff(labelsA,labelsB);method::Symbol = :BLAS)
-    dimsA = size(A)
-    dimsB = size(B)
-    dimsC = tuple(dimsA...,dimsB...)
-    dimsC = dimsC[indexin(outputlabels,vcat(labelsA,labelsB))]
+function tensorcontract(A, labelsA, B, labelsB, outputlabels = symdiff(labelsA,labelsB); method::Symbol = :BLAS)
     T = promote_type(eltype(A),eltype(B))
-    C = similar(A,T,dimsC)
+    C = similar_from_indices(T, outputlabels, vcat(labelsA,labelsB), A, B)
     tensorcontract!(1,A,labelsA,'N',B,labelsB,'N',0,C,outputlabels;method = method)
 end
 
-function tensorproduct(A::StridedArray,labelsA,B::StridedArray,labelsB,outputlabels = vcat(labelsA,labelsB))
-    dimsA = size(A)
-    dimsB = size(B)
-    dimsC = tuple(dimsA...,dimsB...)
-    dimsC = dimsC[indexin(outputlabels,vcat(labelsA,labelsB))]
+function tensorproduct(A, labelsA, B, labelsB, outputlabels = vcat(labelsA,labelsB))
     T = promote_type(eltype(A),eltype(B))
-    C = similar(A,T,dimsC)
+    C = similar_from_indices(T, outputlabels, vcat(labelsA,labelsB), A, B)
     tensorproduct!(1,A,labelsA,B,labelsB,0,C,outputlabels)
 end
 
 
 # In-place method
 #-----------------
-function tensorcontract!(alpha::Number,A::StridedArray,labelsA,conjA::Char,B::StridedArray,labelsB,conjB::Char,beta::Number,C::StridedArray,labelsC;method::Symbol = :BLAS)
+function tensorcontract!(alpha,A,labelsA,conjA,B,labelsB,conjB,beta,C,labelsC;method::Symbol = :BLAS)
     # Updates C as beta*C+alpha*contract(A,B), whereby the contraction pattern
     # is specified by labelsA, labelsB and labelsC. The iterables labelsA(B,C)
     # should contain a unique label for every index of array A(B,C), such that
@@ -55,98 +47,65 @@ function tensorcontract!(alpha::Number,A::StridedArray,labelsA,conjA::Char,B::St
     NC = ndims(C)
 
     # Process labels, do some error checking and analyse problem structure
-    if NA != length(labelsA) || NB != length(labelsB) || NC != length(labelsC)
-        throw(LabelError("invalid label specification"))
-    end
-    ulabelsA = unique(labelsA)
-    ulabelsB = unique(labelsB)
-    ulabelsC = unique(labelsC)
-    if NA != length(ulabelsA) || NB != length(ulabelsB) || NC != length(ulabelsC)
-        throw(LabelError("tensorcontract requires unique label for every index of the tensor, handle inner contraction first with tensortrace"))
-    end
+    NA == length(labelsA) || throw(LabelError("invalid label length: $labelsA"))
+    NB == length(labelsB) || throw(LabelError("invalid label length: $labelsB"))
+    NC == length(labelsC) || throw(LabelError("invalid label length: $labelsC"))
 
-    clabels = intersect(ulabelsA,ulabelsB)
+    NA == length(unique(labelsA)) || throw(LabelError("handle inner contraction first with tensortrace: $labelsA"))
+    NB == length(unique(labelsB)) || throw(LabelError("handle inner contraction first with tensortrace: $labelsB"))
+    NC == length(unique(labelsC)) || throw(LabelError("handle inner contraction first with tensortrace: $labelsC"))
+
+    clabels = intersect(labelsA,labelsB)
     numcontract = length(clabels)
-    olabelsA = intersect(ulabelsC,ulabelsA)
+    olabelsA = intersect(labelsC,labelsA)
     numopenA = length(olabelsA)
-    olabelsB = intersect(ulabelsC,ulabelsB)
+    olabelsB = intersect(labelsC,labelsB)
     numopenB = length(olabelsB)
 
     if numcontract+numopenA != NA || numcontract+numopenB != NB || numopenA+numopenB != NC
         throw(LabelError("invalid contraction pattern"))
     end
 
-    conjA == 'N' || conjA == 'C' || throw(ArgumentError("Value of conjA should be 'N' or 'C'"))
-    conjB == 'N' || conjB == 'C' || throw(ArgumentError("Value of conjB should be 'N' or 'C'"))
+    # Compute contraction indices and check for valid permutation
+    cindA = indexin(clabels,labelsA)
+    oindA = indexin(olabelsA,labelsA)
+    cindB = indexin(clabels,labelsB)
+    oindB = indexin(olabelsB,labelsB)
+    indCinAB = indexin(labelsC,vcat(olabelsA,olabelsB))
 
-    # Compute and contraction indices and check size compatibility
-    cindA = indexin(clabels,ulabelsA)
-    oindA = indexin(olabelsA,ulabelsA)
-    oindCA = indexin(olabelsA,ulabelsC)
-    cindB = indexin(clabels,ulabelsB)
-    oindB = indexin(olabelsB,ulabelsB)
-    oindCB = indexin(olabelsB,ulabelsC)
+    isperm(vcat(oindA,cindA)) || throw(LabelError("invalid contraction pattern"))
+    isperm(vcat(oindB,cindB)) || throw(LabelError("invalid contraction pattern"))
+    isperm(indCinAB) || throw(LabelError("invalid contraction pattern"))
 
-    dimA = size(A)
-    dimB = size(B)
-    dimC = size(C)
-
-    cdimsA = dimA[cindA]
-    cdimsB = dimB[cindB]
-    odimsA = dimA[oindA]
-    odimsB = dimB[oindB]
-
-    for i = 1:numcontract
-        cdimsA[i] == cdimsB[i] || throw(DimensionMismatch("dimension mismatch for label $(clabels[i])"))
-    end
-    for i = 1:numopenA
-        odimsA[i] == dimC[oindCA[i]] || throw(DimensionMismatch("dimension mismatch for label $(olabelsA[i])"))
-    end
-    for i = 1:numopenB
-        odimsB[i] == dimC[oindCB[i]] || throw(DimensionMismatch("dimension mismatch for label $(olabelsB[i])"))
-    end
-
-    # Perform contraction
     if method == :BLAS
-        contract_blas!(alpha,A,conjA,B,conjB,beta,C,oindA,cindA,oindB,cindB,oindCA,oindCB)
+        contract_blas!(alpha,A,conjA,B,conjB,beta,C,oindA,cindA,oindB,cindB,indCinAB)
     elseif method == :native
-        contract_native!(alpha,A,conjA,B,conjB,beta,C,oindA,cindA,oindB,cindB,oindCA,oindCB)
+        contract_native!(alpha,A,conjA,B,conjB,beta,C,oindA,cindA,oindB,cindB,indCinAB)
     else
         throw(ArgumentError("unknown contraction method"))
     end
     return C
 end
 
-function tensorproduct!(alpha::Number,A::StridedArray,labelsA,B::StridedArray,labelsB,beta::Number,C::StridedArray,labelsC)
-    # Updates C as beta*C+alpha*tensorproduct(A,B), whereby the order of indices
-    # in A, B and C are specified by the labels.
-
+function tensorproduct!(alpha,A,labelsA,B,labelsB,beta,C,labelsC)
     # Get properties of input arrays
-    NA = ndims(A)
-    NB = ndims(B)
-    NC = ndims(C)
-
-    # Process labels, do some error checking and analyse problem structure
-    if NA != length(labelsA) || NB != length(labelsB) || NC != length(labelsC)
-        throw(LabelError("invalid label specification"))
-    end
-    NC == NA+NB || throw(LabelError("not a valid tensor product specification"))
-    labels = setdiff(labelsC,labelsA)
-    labels = setdiff(labels,labelsB)
-
-    isempty(labels) || throw(LabelError("not a valid tensor product specification"))
+    ndims(A) + ndims(B) == ndims(C) || throw(LabelError("not a valid tensor product"))
 
     return tensorcontract!(alpha,A,labelsA,'N',B,labelsB,'N',beta,C,labelsC;method = :native)
 end
 
-# Implementations
-#-----------------
-function contract_blas!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB::Char,beta,C::StridedArray,oindA,cindA,oindB,cindB,oindCA,oindCB)
+# Implementation methods
+#------------------------
+# High level: can be extended for other types of arrays or tensors
+function contract_blas!(alpha,A::StridedArray,conjA,B::StridedArray,conjB,beta,C::StridedArray,oindA,cindA,oindB,cindB,indCinAB)
     # The :BLAS method specification permutes A and B such that indopen and
     # indcontract are grouped, reshape them to matrices with all indopen on one
     # side and all indcontract on the other. Compute the data for C from
     # multiplying these matrices. Permute again to bring indices in requested
     # order.
+
+    conjA == 'N' || conjA == 'C' || throw(ArgumentError("Value of conjA should be 'N' or 'C' instead of $conjA"))
+    conjB == 'N' || conjB == 'C' || throw(ArgumentError("Value of conjB should be 'N' or 'C' instead of $conjB"))
 
     NA = ndims(A)
     NB = ndims(B)
@@ -155,29 +114,25 @@ function contract_blas!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB:
     TB = eltype(B)
     TC = eltype(C)
 
-    # only basic checking, this function is not expected to be called directly
-    length(oindA) == length(oindCA) || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindB) == length(oindCB) || throw(DimensionMismatch("invalid contraction pattern"))
-    length(cindA) == length(cindB) == div(NA+NB-NC,2) || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindA)+length(cindA) == NA || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindB)+length(cindB) == NB || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindCA)+length(oindCB) == NC || throw(DimensionMismatch("invalid contraction pattern"))
+    # dimension checking
+    dimA = size(A)
+    dimB = size(B)
+    dimC = size(C)
 
-    # try to avoid extra allocation as much as possible
-    if NC>0 && vcat(oindCB,oindCA) == collect(1:NC) # better to change role of A and B
-        oindA,oindB = oindB,oindA
-        cindA,cindB = cindB,cindA
-        oindCA,oindCB = oindCB,oindCA
-        A,B = B,A
-        NA,NB = NB,NA
-        TA,TB = TB,TA
+    cdimsA = dimA[cindA]
+    cdimsB = dimB[cindB]
+    odimsA = dimA[oindA]
+    odimsB = dimB[oindB]
+    odimsAB = tuple(odimsA...,odimsB...)
+
+    for i = 1:length(cdimsA)
+        cdimsA[i] == cdimsB[i] || throw(DimensionMismatch())
     end
+    cdims = cdimsA
 
-    dimsA = size(A)
-    odimsA = dimsA[oindA]
-    dimsB = size(B)
-    odimsB = dimsB[oindB]
-    cdims = dimsA[cindA]
+    for i = 1:length(indCinAB)
+        dimC[i] == odimsAB[indCinAB[i]] || throw(DimensionMismatch())
+    end
 
     olengthA = prod(odimsA)
     olengthB = prod(odimsB)
@@ -190,7 +145,8 @@ function contract_blas!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB:
             Amat = reshape(A,(clength,olengthA))
         else
             Apermuted = Array{TC}(tuple(cdims...,odimsA...))
-            tensorcopy!(A,1:NA,Apermuted,pA)
+            # tensorcopy!(A,1:NA,Apermuted,pA)
+            add_native!(1,A,0,Apermuted,pA)
             Amat = reshape(Apermuted,(clength,olengthA))
         end
     else
@@ -203,7 +159,8 @@ function contract_blas!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB:
             pA = vcat(cindA,oindA)
             conjA = 'T' # it is more efficient to compute At*B
             Apermuted = Array{TC}(tuple(cdims...,odimsA...))
-            tensorcopy!(A,1:NA,Apermuted,pA)
+            # tensorcopy!(A,1:NA,Apermuted,pA)
+            add_native!(1,A,0,Apermuted,pA)
             Amat = reshape(Apermuted,(clength,olengthA))
         end
     end
@@ -215,7 +172,8 @@ function contract_blas!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB:
             Bmat = reshape(B,(olengthB,clength))
         else
             Bpermuted = Array{TC}(tuple(odimsB...,cdims...))
-            tensorcopy!(B,1:NB,Bpermuted,pB)
+            # tensorcopy!(B,1:NB,Bpermuted,pB)
+            add_native!(1,B,0,Bpermuted,pB)
             Bmat = reshape(Bpermuted,(olengthB,clength))
         end
     else
@@ -227,42 +185,56 @@ function contract_blas!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB:
         else
             pB = vcat(cindB,oindB)
             Bpermuted = Array{TC}(tuple(cdims...,odimsB...))
-            tensorcopy!(B,1:NB,Bpermuted,pB)
+            # tensorcopy!(B,1:NB,Bpermuted,pB)
+            add_native!(1,B,0,Bpermuted,pB)
             Bmat = reshape(Bpermuted,(clength,olengthB))
         end
     end
 
     # calculate C
-    pC = vcat(oindCA,oindCB)
-    if pC == collect(1:NC) && isa(C,Array)
+    if indCinAB == collect(1:NC) && isa(C,Array)
         Cmat = reshape(C,(olengthA,olengthB))
         BLAS.gemm!(conjA,conjB,TC(alpha),Amat,Bmat,TC(beta),Cmat)
     else
         Cmat = Array{TC}(olengthA,olengthB)
         BLAS.gemm!(conjA,conjB,TC(1),Amat,Bmat,TC(0),Cmat)
-        tensoradd!(alpha,reshape(Cmat,tuple(odimsA...,odimsB...)),pC,beta,C,1:NC)
+        # tensoradd!(alpha,reshape(Cmat,tuple(odimsA...,odimsB...)),pC,beta,C,1:NC)
+        add_native!(alpha,reshape(Cmat,tuple(odimsA...,odimsB...)),beta,C,indCinAB)
     end
     return C
 end
 
-function contract_native!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB::Char,beta,C::StridedArray,oindA,cindA,oindB,cindB,oindCA,oindCB)
-    # only basic checking, this function is not expected to be called directly
+# High level: can be extended for other types of arrays or tensors
+function contract_native!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conjB::Char,beta,C::StridedArray,oindA,cindA,oindB,cindB,indCinAB)
+    # native contraction method using divide and conquer
+
+    conjA == 'N' || conjA == 'C' || throw(ArgumentError("Value of conjA should be 'N' or 'C' instead of $conjA"))
+    conjB == 'N' || conjB == 'C' || throw(ArgumentError("Value of conjB should be 'N' or 'C' instead of $conjB"))
+
     NA = ndims(A)
     NB = ndims(B)
     NC = ndims(C)
-    length(oindA) == length(oindCA) || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindB) == length(oindCB) || throw(DimensionMismatch("invalid contraction pattern"))
-    length(cindA) == length(cindB) == div(NA+NB-NC,2) || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindA) + length(cindA) == NA || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindB) + length(cindB) == NB || throw(DimensionMismatch("invalid contraction pattern"))
-    length(oindCA) + length(oindCB) == NC || throw(DimensionMismatch("invalid contraction pattern"))
 
-    sA = _permute(_strides(A),vcat(oindA,cindA))
-    sB = _permute(_strides(B),vcat(oindB,cindB))
-    sC = _permute(_strides(C),vcat(oindCA,oindCB))
+    # dimension checking
+    dimA = size(A)
+    dimB = size(B)
+    dimC = size(C)
 
-    dimsA = _permute(size(A),vcat(oindA,cindA))
-    dimsB = _permute(size(B),vcat(oindB,cindB))
+    cdimsA = dimA[cindA]
+    cdimsB = dimB[cindB]
+    odimsA = dimA[oindA]
+    odimsB = dimB[oindB]
+    odimsAB = tuple(odimsA...,odimsB...)
+
+    # Perform contraction
+    pA = vcat(oindA,cindA)
+    pB = vcat(oindB,cindB)
+    sA = _permute(_strides(A),pA)
+    sB = _permute(_strides(B),pB)
+    sC = _permute(_strides(C),invperm(indCinAB))
+
+    dimsA = _permute(size(A),pA)
+    dimsB = _permute(size(B),pB)
 
     dims, stridesA, stridesB, stridesC, minstrides = _contractstrides(dimsA, dimsB, sA, sB, sC)
     offsetA = offsetB = offsetC = 0
@@ -278,8 +250,9 @@ function contract_native!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conj
     end
     dataC = StridedData(C,stridesC)
 
+    # contract via recursive divide and conquer
     if alpha == 0
-        beta == 1 || scale!(C,beta)
+        beta == 1 || _scale!(dataC,beta,dims)
     elseif alpha == 1 && beta == 0
         contract_rec!(_one,dataA,dataB,_zero,dataC,dims,offsetA,offsetB,offsetC,minstrides)
     elseif alpha == 1 && beta == 1
@@ -294,8 +267,7 @@ function contract_native!(alpha,A::StridedArray,conjA::Char,B::StridedArray,conj
     return C
 end
 
-# Recursive implementation
-#--------------------------
+# Recursive divide and conquer approach:
 @generated function contract_rec!{N}(alpha, A::StridedData{N}, B::StridedData{N}, beta, C::StridedData{N},
     dims::NTuple{N, Int}, offsetA::Int, offsetB::Int, offsetC::Int, minstrides::NTuple{N, Int})
 
@@ -332,7 +304,6 @@ end
 end
 
 # Micro kernel at end of recursion
-#----------------------------------
 @generated function contract_micro!{N}(alpha, A::StridedData{N}, B::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA, offsetB, offsetC)
     quote
         _scale!(C, beta, dims, offsetC)

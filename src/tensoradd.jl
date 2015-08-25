@@ -6,45 +6,52 @@
 
 # Simple methods
 # ---------------
-function tensorcopy(A::StridedArray, labelsA, outputlabels=labelsA)
-    dims=size(A)
-    C=similar(A, dims[indexin(outputlabels, labelsA)])
+function tensorcopy(A, labelsA, outputlabels=labelsA)
+    C = similar_from_indices(eltype(A), outputlabels, labelsA, A)
     tensorcopy!(A, labelsA, C, outputlabels)
 end
 
-function tensoradd(A::StridedArray, labelsA, B::StridedArray, labelsB, outputlabels=labelsA)
-    dims=size(A)
-    T=promote_type(eltype(A), eltype(B))
-    C=similar(A, T, dims[indexin(outputlabels, labelsA)])
+function tensoradd(A, labelsA, B, labelsB, outputlabels=labelsA)
+    T = promote_type(eltype(A), eltype(B))
+    C = similar_from_indices(T, outputlabels, labelsA, A)
     tensorcopy!(A, labelsA, C, outputlabels)
     tensoradd!(1, B, labelsB, 1, C, outputlabels)
 end
 
 # In-place method
 #-----------------
-tensorcopy!(A::StridedArray, labelsA, C::StridedArray, labelsC) =
+tensorcopy!(A, labelsA, C, labelsC) =
     tensoradd!(1, A, labelsA, 0, C, labelsC)
 
-function tensoradd!(alpha::Number,A::StridedArray,labelsA,beta::Number,C::StridedArray,labelsC)
+function tensoradd!(alpha,A,labelsA,beta,C,labelsC)
     NA=ndims(A)
     NC=ndims(C)
-    (length(labelsA)==NA && length(labelsC)==NC) || throw(LabelError("invalid label specification"))
+    length(labelsA)==NA || throw(LabelError("invalid label length: $labelsA"))
+    length(labelsC)==NC || throw(LabelError("invalid label length: $labelsC"))
 
-    pA=indexin(labelsC,labelsA)
-    isperm(pA) || throw(LabelError("invalid label specification"))
+    indCinA=indexin(labelsC,labelsA)
+    isperm(indCinA) || throw(LabelError("non-matching labels: $labelsA vs $labelsC"))
 
-    for i = 1:NC
-        size(A,pA[i]) == size(C,i) || throw(DimensionMismatch("tensor sizes incompatible"))
+    add_native!(alpha, A, beta, C, indCinA)
+    return C
+end
+
+# Implementation methods
+#------------------------
+# High level: can be extended for other types of arrays or tensors
+function add_native!(alpha, A::StridedArray, beta, C::StridedArray, indCinA)
+    for i = 1:ndims(C)
+        size(A,indCinA[i]) == size(C,i) || throw(DimensionMismatch())
     end
 
-    dims, stridesA, stridesC, minstrides = _addstrides(size(C), _permute(_strides(A),pA), _strides(C))
+    dims, stridesA, stridesC, minstrides = _addstrides(size(C), _permute(_strides(A),indCinA), _strides(C))
     dataA = StridedData(A,stridesA)
     offsetA = 0
     dataC = StridedData(C,stridesC)
     offsetC = 0
 
     if alpha == 0
-        beta == 1 || scale!(C,beta)
+        beta == 1 || _scale!(dataC,beta,dims)
     elseif alpha == 1 && beta == 0
         add_rec!(_one, dataA, _zero, dataC, dims, offsetA, offsetC, minstrides)
     elseif alpha == 1 && beta == 1
@@ -59,8 +66,7 @@ function tensoradd!(alpha::Number,A::StridedArray,labelsA,beta::Number,C::Stride
     return C
 end
 
-# Recursive implementation
-#--------------------------
+# Recursive divide and conquer approach:
 @generated function add_rec!{N}(alpha, A::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA::Int, offsetC::Int, minstrides::NTuple{N, Int})
     quote
         if prod(dims) <= BASELENGTH
@@ -77,8 +83,7 @@ end
     end
 end
 
-# Micro kernel at end of recursion
-#----------------------------------
+# Micro kernel at end of recursion:
 @generated function add_micro!{N}(alpha, A::StridedData{N}, beta, C::StridedData{N}, dims::NTuple{N, Int}, offsetA::Int, offsetC::Int)
     quote
         startA = A.start+offsetA

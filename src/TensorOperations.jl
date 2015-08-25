@@ -5,9 +5,9 @@ export tensorcopy!, tensoradd!, tensortrace!, tensorcontract!, tensorproduct!
 
 # LabelError
 #------------
-# Tensor operations, either using methods or via index notation,
-# are specified by assigning labels to the different indices of
-# an array. All errors related to invalid label configurations
+# Tensor operations, either using methods or via index notation, are specified
+# by assigning labels to the different indices of an array. All errors related
+# to invalid label configurations.
 type LabelError <: Exception
     msg::String
 end
@@ -21,10 +21,15 @@ const BASELENGTH=1024
 #--------
 scalar(C::StridedArray) = length(C)==1 ? C[1] : throw(DimensionMismatch())
 
+# Auxiliary functions
+#---------------------
+include("axpby.jl")
+include("meta.jl")
+include("similar.jl")
+include("strideddata.jl")
+
 # Tensor Operations
 #-------------------
-include("aux.jl")
-include("strideddata.jl")
 include("tensoradd.jl")
 include("tensortrace.jl")
 include("tensorcontract.jl")

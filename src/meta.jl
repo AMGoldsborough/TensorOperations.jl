@@ -96,26 +96,3 @@ function _stridedloops(N::Int, dims::Symbol, args...)
     pre = [Expr(:(=),symbol(args[i],N),args[i+1]) for i in argiter]
     ex = Expr(:block, pre..., ex)
 end
-
-# efficient addition of zero and multiplication by one using multiple dispatch
-# with specialized singleton types
-
-immutable Zero <: Integer
-end
-immutable One <: Integer
-end
-
-const _zero = Zero()
-const _one = One()
-
-axpby(a::One,    x::Number, b::One,    y::Number) = x+y
-axpby(a::Zero,   x::Number, b::One,    y::Number) = y
-axpby(a::One,    x::Number, b::Zero,   y::Number) = x
-axpby(a::Zero,   x::Number, b::Zero,   y::Number) = zero(y)
-
-axpby(a::One,    x::Number, b::Number, y::Number) = x+b*y
-axpby(a::Zero,   x::Number, b::Number, y::Number) = b*y
-axpby(a::Number, x::Number, b::Zero,   y::Number) = a*x
-axpby(a::Number, x::Number, b::One,    y::Number) = a*x+y
-
-axpby(a::Number, x::Number, b::Number, y::Number) = a*x+b*y
