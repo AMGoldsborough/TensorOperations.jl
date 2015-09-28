@@ -6,7 +6,7 @@
 # Extract index information
 #---------------------------
 function trace_indices(labelsA,labelsC)
-    indCinA=indexin(labelsC,labelsA)
+    indCinA=indexin(collect(labelsC),collect(labelsA))
 
     clabels=unique(setdiff(labelsA,labelsC))
     cindA1=Array(Int,length(clabels))
@@ -14,6 +14,7 @@ function trace_indices(labelsA,labelsC)
     for i=1:length(clabels)
         cindA1[i] = findfirst(labelsA,clabels[i])
         cindA2[i] = findnext(labelsA,clabels[i],cindA1[i]+1)
+        findnext(labelsA,clabels[i],cindA2[i]+1)==0 || throw(LabelError("invalid trace specification: $labelsA to $labelsC"))
     end
     pA = vcat(indCinA, cindA1, cindA2)
     isperm(pA) || throw(LabelError("invalid trace specification: $labelsA to $labelsC"))

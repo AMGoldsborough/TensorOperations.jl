@@ -3,13 +3,15 @@ module TensorOperations
 export tensorcopy, tensoradd, tensortrace, tensorcontract, tensorproduct, scalar
 export tensorcopy!, tensoradd!, tensortrace!, tensorcontract!, tensorproduct!
 
+export @tensor
+
 # LabelError
 #------------
 # Tensor operations, either using methods or via index notation, are specified
 # by assigning labels to the different indices of an array or tensorlike object.
 # All errors related to invalid label configurations give rise to LabelError:
-immutable LabelError <: Exception
-    msg::String
+immutable LabelError{S<:AbstractString} <: Exception
+    msg::S
 end
 
 checklabellength(A, labelsA) =
@@ -39,7 +41,7 @@ include("tensorcontract.jl")
 
 # Index notation
 #----------------
-# include("indexnotation.jl")
+include("indexnotation.jl")
 
 end # module
 

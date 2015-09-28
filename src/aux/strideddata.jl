@@ -10,7 +10,7 @@ end
 typealias NormalStridedData{N,T} StridedData{N,T,:N}
 typealias ConjugatedStridedData{N,T} StridedData{N,T,:C}
 
-typealias StridedSubArray{T,N,A<:Array,I<:Tuple{Vararg{Union(Colon,Range{Int64},Int64)}},LD} SubArray{T,N,A,I,LD}
+typealias StridedSubArray{T,N,A<:Array,I<:Tuple{Vararg{Union{Colon,Range{Int64},Int64}}},LD} SubArray{T,N,A,I,LD}
 
 StridedData{N,T,C}(a::Array{T}, strides::NTuple{N,Int} = _strides(a), ::Type{Val{C}} = Val{:N}) =
     StridedData{N,T,C}(vec(a), strides, 1)

@@ -32,7 +32,7 @@ function contract_indices(labelsA, labelsB, labelsC)
     oindA = indexin(olabelsA, collect(labelsA))
     cindB = indexin(clabels, collect(labelsB))
     oindB = indexin(olabelsB, collect(labelsB))
-    indCinoAB = indexin(labelsC, vcat(olabelsA, olabelsB))
+    indCinoAB = indexin(collect(labelsC), vcat(olabelsA, olabelsB))
 
     if !isperm(vcat(oindA, cindA)) || !isperm(vcat(oindB, cindB)) || !isperm(indCinoAB)
         throw(LabelError("invalid contraction pattern: $labelsA and $labelsB to $labelsC"))
