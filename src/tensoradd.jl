@@ -4,50 +4,64 @@
 # specified labels, thereby possibly having to permute the
 # data. Copying as special case.
 
-# Simple methods
-# ---------------
-function tensorcopy(A, labelsA, outputlabels=labelsA)
-    C = similar_from_indices(eltype(A), outputlabels, labelsA, A)
-    tensorcopy!(A, labelsA, C, outputlabels)
+# Extract index information
+#---------------------------
+function add_indices(labelsA,labelsC)
+    indCinA=indexin(collect(labelsC),collect(labelsA))
+    isperm(indCinA) || throw(LabelError("invalid label specification: $labelsA to $labelsC"))
+    return indCinA
 end
 
-function tensoradd(A, labelsA, B, labelsB, outputlabels=labelsA)
+# Simple methods
+# ---------------
+function tensorcopy(A, labelsA, labelsC=labelsA)
+    labelsA == labelsC && return copy(A)
+
+    checklabellength(A, labelsA)
+    indCinA = add_indices(labelsA, labelsC)
+    C = similar_from_indices(eltype(A), indCinA, A)
+    add_native!(1, A, Val{:N}, 0, C, indCinA)
+end
+
+function tensoradd(A, labelsA, B, labelsB, labelsC=labelsA)
+    checklabellength(A, labelsA)
+    checklabellength(B, labelsB)
     T = promote_type(eltype(A), eltype(B))
-    C = similar_from_indices(T, outputlabels, labelsA, A)
-    tensorcopy!(A, labelsA, C, outputlabels)
-    tensoradd!(1, B, labelsB, 1, C, outputlabels)
+    if labelsA == labelsC
+        C = similar_from_indices(T, 1:numind(A), A)
+        copy!(C,A)
+    else
+        indCinA = add_indices(labelsA, labelsC)
+        C = similar_from_indices(T, indCinA, A)
+        add_native!(1, A, Val{:N}, 0, C, indCinA)
+    end
+    indCinB = add_indices(labelsB, labelsC)
+    add_native!(1, B, Val{:N}, 1, C, indCinB)
 end
 
 # In-place method
 #-----------------
-tensorcopy!(A, labelsA, C, labelsC) =
-    tensoradd!(1, A, labelsA, 0, C, labelsC)
+tensorcopy!(A, labelsA, C, labelsC) = tensoradd!(1, A, labelsA, 0, C, labelsC)
 
 function tensoradd!(alpha,A,labelsA,beta,C,labelsC)
-    NA=ndims(A)
-    NC=ndims(C)
-    length(labelsA)==NA || throw(LabelError("invalid label length: $labelsA"))
-    length(labelsC)==NC || throw(LabelError("invalid label length: $labelsC"))
-
-    indCinA=indexin(labelsC,labelsA)
-    isperm(indCinA) || throw(LabelError("non-matching labels: $labelsA vs $labelsC"))
-
-    add_native!(alpha, A, beta, C, indCinA)
-    return C
+    checklabellength(A, labelsA)
+    checklabellength(C, labelsC)
+    indCinA = add_indices(labelsA,labelsC)
+    add_native!(alpha, A, Val{:N}, beta, C, indCinA)
 end
 
 # Implementation methods
 #------------------------
 # High level: can be extended for other types of arrays or tensors
-function add_native!(alpha, A::StridedArray, beta, C::StridedArray, indCinA)
+function add_native!{CA}(alpha, A::StridedArray, ::Type{Val{CA}}, beta, C::StridedArray, indCinA)
     for i = 1:ndims(C)
         size(A,indCinA[i]) == size(C,i) || throw(DimensionMismatch())
     end
 
-    dims, stridesA, stridesC, minstrides = _addstrides(size(C), _permute(_strides(A),indCinA), _strides(C))
-    dataA = StridedData(A,stridesA)
+    dims, stridesA, stridesC, minstrides = add_strides(size(C), _permute(_strides(A),indCinA), _strides(C))
+    dataA = StridedData(A, stridesA, Val{CA})
     offsetA = 0
-    dataC = StridedData(C,stridesC)
+    dataC = StridedData(C, stridesC)
     offsetC = 0
 
     if alpha == 0
@@ -97,7 +111,7 @@ end
 
 # Stride calculation
 #--------------------
-@generated function _addstrides{N}(dims::NTuple{N,Int}, stridesA::NTuple{N,Int}, stridesC::NTuple{N,Int})
+@generated function add_strides{N}(dims::NTuple{N,Int}, stridesA::NTuple{N,Int}, stridesC::NTuple{N,Int})
     minstridesex = Expr(:tuple,[:(min(stridesA[$d],stridesC[$d])) for d = 1:N]...)
     quote
         minstrides = $minstridesex

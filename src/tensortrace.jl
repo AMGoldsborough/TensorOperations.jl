@@ -3,34 +3,9 @@
 # Method for tracing some of the indices of a tensor and
 # adding the result to another tensor.
 
-# Simple method
-#---------------
-function tensortrace(A, labelsA, outputlabels)
-    C = similar_from_indices(eltype(A), outputlabels, labelsA, A)
-    tensortrace!(1,A,labelsA,0,C,outputlabels)
-end
-
-function tensortrace(A, labelsA) # there is no one-line method to compute the default outputlabels
-    ulabelsA=unique(labelsA)
-    labelsC=similar(labelsA,0)
-    sizehint!(labelsC,length(ulabelsA))
-    for j=1:length(ulabelsA)
-        ind=findfirst(labelsA,ulabelsA[j])
-        if findnext(labelsA,ulabelsA[j],ind+1)==0
-            push!(labelsC,ulabelsA[j])
-        end
-    end
-    tensortrace(A,labelsA,labelsC)
-end
-
-# In-place method
-#-----------------
-function tensortrace!(alpha, A, labelsA, beta, C, labelsC)
-    NA=ndims(A)
-    NC=ndims(C)
-    length(labelsA)==NA || throw(LabelError("invalid label length: $labelsA"))
-    length(labelsC)==NC || throw(LabelError("invalid label length: $labelsC"))
-
+# Extract index information
+#---------------------------
+function trace_indices(labelsA,labelsC)
     indCinA=indexin(labelsC,labelsA)
 
     clabels=unique(setdiff(labelsA,labelsC))
@@ -41,16 +16,52 @@ function tensortrace!(alpha, A, labelsA, beta, C, labelsC)
         cindA2[i] = findnext(labelsA,clabels[i],cindA1[i]+1)
     end
     pA = vcat(indCinA, cindA1, cindA2)
-    isperm(pA) || throw(LabelError("invalid trace specification: $labelsA"))
+    isperm(pA) || throw(LabelError("invalid trace specification: $labelsA to $labelsC"))
+    return indCinA, cindA1, cindA2
+end
 
-    trace_native!(alpha, A, beta, C, indCinA, cindA1, cindA2)
+# Simple method
+#---------------
+function tensortrace(A, labelsA, labelsC = unique2(labelsA))
+    checklabellength(A, labelsA)
+    indCinA, cindA1, cindA2 = trace_indices(labelsA,labelsC)
+    C = similar_from_indices(eltype(A), indCinA, A)
+    trace_native!(1, A, Val{:N}, 0, C, indCinA, cindA1, cindA2)
+end
+
+# auxiliary:
+function unique2(C)
+    out = collect(C)
+    i = 1
+    while i < length(out)
+        inext = findnext(out,out[i],i+1)
+        if inext == 0
+            i += 1
+            continue
+        end
+        while inext != 0
+            deleteat!(out,inext)
+            inext = findnext(out,out[i],i+1)
+        end
+        deleteat!(out,i)
+    end
+    out
+end
+
+# In-place method
+#-----------------
+function tensortrace!(alpha, A, labelsA, beta, C, labelsC)
+    checklabellength(A, labelsA)
+    checklabellength(C, labelsC)
+    indCinA, cindA1, cindA2 = trace_indices(labelsA,labelsC)
+    trace_native!(alpha, A, Val{:N}, beta, C, indCinA, cindA1, cindA2)
     return C
 end
 
 # Implementation methods
 #------------------------
 # High level: can be extended for other types of arrays or tensors
-function trace_native!(alpha, A::StridedArray, beta, C::StridedArray, indCinA, cindA1, cindA2)
+function trace_native!{CA}(alpha, A::StridedArray, ::Type{Val{CA}}, beta, C::StridedArray, indCinA, cindA1, cindA2)
     NC = ndims(C)
     NA = ndims(A)
 
@@ -62,10 +73,10 @@ function trace_native!(alpha, A::StridedArray, beta, C::StridedArray, indCinA, c
     end
 
     pA = vcat(indCinA, cindA1, cindA2)
-    dims, stridesA, stridesC, minstrides = _tracestrides(_permute(size(A),pA), _permute(_strides(A),pA), _strides(C))
-    dataA = StridedData(A,stridesA)
+    dims, stridesA, stridesC, minstrides = trace_strides(_permute(size(A),pA), _permute(_strides(A),pA), _strides(C))
+    dataA = StridedData(A, stridesA, Val{CA})
     offsetA = 0
-    dataC = StridedData(C,stridesC)
+    dataC = StridedData(C, stridesC)
     offsetC = 0
 
     if alpha == 0
@@ -120,7 +131,7 @@ end
 
 # Stride calculation
 #--------------------
-@generated function _tracestrides{NA,NC}(dims::NTuple{NA,Int}, stridesA::NTuple{NA,Int}, stridesC::NTuple{NC,Int})
+@generated function trace_strides{NA,NC}(dims::NTuple{NA,Int}, stridesA::NTuple{NA,Int}, stridesC::NTuple{NC,Int})
     M = div(NA-NC,2)
     dimsex = Expr(:tuple,[:(dims[$d]) for d=1:(NC+M)]...)
     stridesAex = Expr(:tuple,[:(stridesA[$d]) for d = 1:NC]...,[:(stridesA[$(NC+d)]+stridesA[$(NC+M+d)]) for d = 1:M]...)

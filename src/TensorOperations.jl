@@ -6,11 +6,14 @@ export tensorcopy!, tensoradd!, tensortrace!, tensorcontract!, tensorproduct!
 # LabelError
 #------------
 # Tensor operations, either using methods or via index notation, are specified
-# by assigning labels to the different indices of an array. All errors related
-# to invalid label configurations.
-type LabelError <: Exception
+# by assigning labels to the different indices of an array or tensorlike object.
+# All errors related to invalid label configurations give rise to LabelError:
+immutable LabelError <: Exception
     msg::String
 end
+
+checklabellength(A, labelsA) =
+    length(labelsA) == numind(A) || throw(LabelError("invalid label length: $labelsA"))
 
 # Constants that define base case in recursive algorithms
 # ---------------------------------------------------------
@@ -23,10 +26,10 @@ scalar(C::StridedArray) = length(C)==1 ? C[1] : throw(DimensionMismatch())
 
 # Auxiliary functions
 #---------------------
-include("axpby.jl")
-include("meta.jl")
-include("similar.jl")
-include("strideddata.jl")
+include("aux/axpby.jl")
+include("aux/meta.jl")
+include("aux/similar.jl")
+include("aux/strideddata.jl")
 
 # Tensor Operations
 #-------------------
