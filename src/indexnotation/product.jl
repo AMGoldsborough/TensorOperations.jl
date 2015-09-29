@@ -42,7 +42,7 @@ end
     else
         IB = IB[vcat(cindB,oindB)]
         IB = tuple(IB...)
-        indB = :(Indices{$JB}())
+        indB = :(Indices{$IB}())
         argB = :(indexify(deindexify(B,$indB),$indB))
     end
     meta = Expr(:meta,:inline)
