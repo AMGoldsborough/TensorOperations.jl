@@ -1,12 +1,22 @@
-# Elementary object: IndexedObject parameterized by its indices, whether or not
-# it has been conjugated, the type of the object it wraps, and the type of a
-# possible scalar factor α
+# indexnotation/indexedobject.jl
+#
+# Defines a parameteric type to store indices at compile-time, as well as a
+# hierarchy of types to assign these indices to objects and implement tensor
+# operations with them.
+
+import Base: +, -, *
+
+immutable Indices{I}
+end
+
+abstract AbstractIndexedObject
+indices(a::AbstractIndexedObject) = indices(typeof(a))
 
 immutable IndexedObject{I,C,A,T} <: AbstractIndexedObject
     object::A
     α::T
     function IndexedObject(object::A, α::T)
-        checklabellength(object, I)
+        checkindices(object, I)
         new(object, α)
     end
 end
@@ -46,13 +56,12 @@ end
 @generated function deindexify!{Idst, Isrc, C}(dst, src::IndexedObject{Isrc, C}, ::Indices{Idst}, β=0)
     meta = Expr(:meta, :inline)
     Jdst = unique2(Idst)
-    length(Jdst) == length(Idst) || throw(LabelError("left-hand side cannot have inner contraction: $Idst"))
-    Jsrc = unique2(Isrc)
-    if length(Jsrc) == length(Jdst)
+    length(Jdst) == length(Idst) || throw(IndexError("left-hand side cannot have partial trace: $Idst"))
+    if length(Isrc) == length(Jdst)
         indCinA = add_indices(Isrc, Idst)
-        :($meta;add_native!(src.α, src.object, Val{C}, β, dst, $indCinA))
+        :($meta;add!(src.α, src.object, Val{C}, β, dst, $indCinA))
     else
         indCinA, cindA1, cindA2 = trace_indices(Isrc, Idst)
-        return :($meta;trace_native!(src.α, src.object, Val{C}, β, dst, $indCinA, $cindA1, $cindA2))
+        return :($meta;trace!(src.α, src.object, Val{C}, β, dst, $indCinA, $cindA1, $cindA2))
     end
 end

@@ -1,3 +1,8 @@
+# indexnotation/sum.jl
+#
+# A wrapper to store the sum of a set of indexed objects and evaluate lazily,
+# i.e. evaluate upon calling `deindexify`.
+
 immutable SumOfIndexedObjects{Os<:Tuple{Vararg{AbstractIndexedObject}}} <: AbstractIndexedObject
     objects::Os
 end

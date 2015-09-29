@@ -1,3 +1,8 @@
+# indexnotation/product.jl
+#
+# A wrapper to store the contraction (product) of two indexed objects and
+# evaluate lazily, i.e. evaluate upon calling `deindexify`.
+
 immutable ProductOfIndexedObjects{IA,IB,CA,CB,OA,OB,TA,TB} <: AbstractIndexedObject
     A::IndexedObject{IA,CA,OA,TA}
     B::IndexedObject{IB,CB,OB,TB}
@@ -21,24 +26,22 @@ end
 @generated function *(A::AbstractIndexedObject,B::AbstractIndexedObject)
     IA = indices(A)
     IB = indices(B)
-    JA = unique2(IA)
-    JB = unique2(IB)
-    JC = unique2(vcat(JA,JB))
-    oindA, cindA, oindB, cindB, = contract_indices(JA,JB,JC)
+    IC = symdiff(IA,IB)
+    oindA, cindA, oindB, cindB, = contract_indices(IA,IB,IC)
     meta = Expr(:meta,:inline)
-    if JA == collect(IA) && A <: IndexedObject
+    if A <: IndexedObject{IA}
         argA = :A
     else
-        JA = JA[vcat(oindA,cindA)]
-        JA = tuple(JA...)
-        indA = :(Indices{$JA}())
+        IA = IA[vcat(oindA,cindA)]
+        IA = tuple(IA...)
+        indA = :(Indices{$IA}())
         argA = :(indexify(deindexify(A,$indA),$indA))
     end
-    if JB == collect(IB) && B <: IndexedObject
+    if B <: IndexedObject{IB}
         argB = :B
     else
-        JB = JB[vcat(cindB,oindB)]
-        JB = tuple(JB...)
+        IB = IB[vcat(cindB,oindB)]
+        IB = tuple(IB...)
         indB = :(Indices{$JB}())
         argB = :(indexify(deindexify(B,$indB),$indB))
     end
@@ -65,6 +68,6 @@ end
     meta = Expr(:meta,:inline)
     quote
         $meta
-        contract_blas!(P.A.α*P.B.α,P.A.object,$conjA,P.B.object,$conjB,β,dst,$oindA,$cindA,$oindB,$cindB,$indCinoAB)
+        contract!(P.A.α*P.B.α,P.A.object,$conjA,P.B.object,$conjB,β,dst,$oindA,$cindA,$oindB,$cindB,$indCinoAB)
     end
 end
